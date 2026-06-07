@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Focus Detector — Web</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <div id="app">
+    <!-- Tela inicial -->
+    <section id="start-screen" class="screen">
+      <h1>FOCUS DETECTOR</h1>
+      <p class="subtitle">Detecção de foco em tempo real</p>
+      <button id="btn-start" class="primary">Iniciar sessão</button>
+      <p id="cam-error" class="error hidden"></p>
+    </section>
+
+    <!-- Detector ao vivo -->
+    <section id="live-screen" class="screen hidden">
+      <div class="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="hud"></canvas>
+      </div>
+      <div class="controls">
+        <button id="btn-invert">Inverter classes</button>
+        <button id="btn-thr-down">− limiar</button>
+        <span id="thr-label">thr 0.50</span>
+        <button id="btn-thr-up">+ limiar</button>
+        <button id="btn-stop" class="danger">Encerrar &amp; relatório</button>
+      </div>
+    </section>
+
+    <!-- Relatório da sessão -->
+    <section id="report-screen" class="screen hidden">
+      <h2>RELATÓRIO DA SESSÃO DE FOCO</h2>
+      <div id="kpis" class="kpis"></div>
+      <div class="charts">
+        <div class="chart-card">
+          <h3>FOCADO × DESFOCADO</h3>
+          <canvas id="chart-donut"></canvas>
+        </div>
+        <div class="chart-card wide">
+          <h3>PRODUTIVIDADE AO LONGO DO TEMPO</h3>
+          <canvas id="chart-prod"></canvas>
+        </div>
+      </div>
+      <div class="chart-card full">
+        <h3>LINHA DO TEMPO DOS ESTADOS</h3>
+        <canvas id="chart-timeline" height="70"></canvas>
+      </div>
+      <button id="btn-restart" class="primary">Nova sessão</button>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
