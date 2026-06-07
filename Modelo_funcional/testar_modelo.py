@@ -16,7 +16,7 @@ import numpy as np
 import keras
 import time
 
-MODELO     = "focus_model.keras"
+MODELO     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "focus_model.keras")
 TAM        = 224
 
 # ── Paleta BGR ────────────────────────────────────────────────────────────────
