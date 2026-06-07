@@ -93,6 +93,174 @@ def vignette(img, strength=0.40):
     return (img.astype(np.float32) * mask3).astype(np.uint8)
 
 
+def mostrar_dashboard(historico):
+    """
+    Abre uma janela com gráficos da sessão de foco.
+    `historico` é uma lista de tuplas (timestamp, focado(bool), prob, confianca).
+    Totalmente opcional: qualquer erro aqui é silenciado para não afetar o programa.
+    """
+    if not historico or len(historico) < 2:
+        print("Sessão muito curta para gerar relatório.")
+        return
+
+    import matplotlib
+    matplotlib.use("TkAgg")  # janela interativa
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+
+    # Cores (RGB normalizado) coerentes com o HUD
+    VERDE    = (110 / 255, 230 / 255,  80 / 255)
+    VERMELHO = (240 / 255,  60 / 255,  60 / 255)
+    CIANO    = (120 / 255, 210 / 255, 220 / 255)
+    FUNDO    = (0.07, 0.07, 0.09)
+    PAINEL   = (0.11, 0.11, 0.14)
+    TXT      = (0.90, 0.90, 0.90)
+    TXT_DIM  = (0.55, 0.55, 0.58)
+
+    t0 = historico[0][0]
+    tempos   = [h[0] - t0 for h in historico]      # segundos relativos
+    focados  = [h[1] for h in historico]
+    confs    = [h[3] for h in historico]
+
+    # ── Integra o tempo gasto em cada estado (dt entre frames) ──────────────────
+    tempo_focado = 0.0
+    tempo_desf   = 0.0
+    transicoes_para_desf = 0      # número de "distrações" (focado -> desfocado)
+    segmentos = []                # (inicio, fim, focado) para o gantt
+    seg_ini   = tempos[0]
+    seg_estado = focados[0]
+    duracoes_foco = []            # durações de cada sequência focada
+    dur_atual = 0.0
+
+    for i in range(len(historico) - 1):
+        dt = tempos[i + 1] - tempos[i]
+        if focados[i]:
+            tempo_focado += dt
+            dur_atual    += dt
+        else:
+            tempo_desf += dt
+
+        if focados[i + 1] != seg_estado:
+            segmentos.append((seg_ini, tempos[i + 1], seg_estado))
+            seg_ini = tempos[i + 1]
+            if seg_estado and not focados[i + 1]:
+                transicoes_para_desf += 1
+                if dur_atual > 0:
+                    duracoes_foco.append(dur_atual)
+                dur_atual = 0.0
+            seg_estado = focados[i + 1]
+    segmentos.append((seg_ini, tempos[-1], seg_estado))
+    if seg_estado and dur_atual > 0:
+        duracoes_foco.append(dur_atual)
+
+    tempo_total = tempo_focado + tempo_desf
+    pct_foco = (tempo_focado / tempo_total * 100) if tempo_total > 0 else 0.0
+    maior_foco = max(duracoes_foco) if duracoes_foco else 0.0
+    conf_media = (sum(confs) / len(confs) * 100) if confs else 0.0
+
+    def fmt(seg):
+        m, s = divmod(int(seg), 60)
+        return f"{m}m {s:02d}s" if m else f"{s}s"
+
+    # ── Produtividade ao longo do tempo (média móvel de % focado) ───────────────
+    janela = max(5, len(focados) // 30)
+    prod = []
+    soma = 0.0
+    from collections import deque
+    buf = deque(maxlen=janela)
+    for f in focados:
+        buf.append(1.0 if f else 0.0)
+        prod.append(sum(buf) / len(buf) * 100)
+
+    # ── Figura ──────────────────────────────────────────────────────────────────
+    fig = plt.figure(figsize=(13, 8), facecolor=FUNDO)
+    fig.canvas.manager.set_window_title("Focus Detector — Relatório da Sessão")
+    gs = GridSpec(3, 3, figure=fig, height_ratios=[0.7, 1.1, 1.0],
+                  hspace=0.45, wspace=0.30,
+                  left=0.06, right=0.96, top=0.90, bottom=0.08)
+
+    fig.suptitle("RELATÓRIO DA SESSÃO DE FOCO", color=TXT,
+                 fontsize=18, fontweight="bold", y=0.965)
+
+    def estilo_eixo(ax, titulo=""):
+        ax.set_facecolor(PAINEL)
+        for spine in ax.spines.values():
+            spine.set_color((0.3, 0.3, 0.33))
+        ax.tick_params(colors=TXT_DIM, labelsize=8)
+        if titulo:
+            ax.set_title(titulo, color=TXT, fontsize=11, fontweight="bold", pad=10)
+
+    # ── KPIs (linha superior) ─────────────────────────────────────────────────
+    kpis = [
+        ("TEMPO TOTAL",      fmt(tempo_total),     CIANO),
+        ("TEMPO FOCADO",     fmt(tempo_focado),    VERDE),
+        ("TEMPO DESFOCADO",  fmt(tempo_desf),      VERMELHO),
+        ("FOCO MÉDIO",       f"{pct_foco:.0f}%",   VERDE),
+        ("MAIOR SEQUÊNCIA",  fmt(maior_foco),      CIANO),
+        ("DISTRAÇÕES",       str(transicoes_para_desf), VERMELHO),
+    ]
+    # Painel de KPIs desenhado num único eixo
+    ax_kpi = fig.add_subplot(gs[0, :])
+    ax_kpi.set_facecolor(FUNDO)
+    ax_kpi.axis("off")
+    n = len(kpis)
+    for i, (titulo, valor, cor) in enumerate(kpis):
+        cx = (i + 0.5) / n
+        ax_kpi.text(cx, 0.78, valor, color=cor, fontsize=20, fontweight="bold",
+                    ha="center", va="center", transform=ax_kpi.transAxes)
+        ax_kpi.text(cx, 0.28, titulo, color=TXT_DIM, fontsize=9,
+                    ha="center", va="center", transform=ax_kpi.transAxes)
+
+    # ── Donut: Focado x Desfocado ──────────────────────────────────────────────
+    ax_pie = fig.add_subplot(gs[1, 0])
+    ax_pie.set_facecolor(FUNDO)
+    if tempo_total > 0:
+        wedges, _ = ax_pie.pie(
+            [tempo_focado, tempo_desf],
+            colors=[VERDE, VERMELHO], startangle=90,
+            wedgeprops=dict(width=0.42, edgecolor=FUNDO, linewidth=3),
+        )
+        ax_pie.text(0, 0, f"{pct_foco:.0f}%\nFOCO", color=TXT, fontsize=15,
+                    fontweight="bold", ha="center", va="center")
+    ax_pie.set_title("FOCADO  x  DESFOCADO", color=TXT, fontsize=11,
+                     fontweight="bold", pad=10)
+    ax_pie.legend(["Focado", "Desfocado"], loc="lower center",
+                  bbox_to_anchor=(0.5, -0.18), ncol=2, frameon=False,
+                  labelcolor=TXT_DIM, fontsize=9)
+
+    # ── Produtividade ao longo do tempo ────────────────────────────────────────
+    ax_prod = fig.add_subplot(gs[1, 1:])
+    estilo_eixo(ax_prod, "PRODUTIVIDADE AO LONGO DO TEMPO")
+    ax_prod.plot(tempos, prod, color=CIANO, linewidth=2)
+    ax_prod.fill_between(tempos, prod, color=CIANO, alpha=0.15)
+    ax_prod.axhline(pct_foco, color=VERDE, linestyle="--", linewidth=1,
+                    alpha=0.7, label=f"média {pct_foco:.0f}%")
+    ax_prod.set_ylim(0, 100)
+    ax_prod.set_xlabel("tempo (s)", color=TXT_DIM, fontsize=9)
+    ax_prod.set_ylabel("% foco (móvel)", color=TXT_DIM, fontsize=9)
+    ax_prod.legend(loc="lower right", frameon=False, labelcolor=TXT_DIM, fontsize=8)
+    ax_prod.grid(True, color=(0.2, 0.2, 0.23), linewidth=0.5)
+
+    # ── Linha do tempo (gantt) dos estados ─────────────────────────────────────
+    ax_tl = fig.add_subplot(gs[2, :])
+    estilo_eixo(ax_tl, "LINHA DO TEMPO DOS ESTADOS")
+    for ini, fim, estado in segmentos:
+        ax_tl.barh(0, fim - ini, left=ini, height=0.6,
+                   color=VERDE if estado else VERMELHO)
+    ax_tl.set_yticks([])
+    ax_tl.set_xlim(0, tempos[-1])
+    ax_tl.set_xlabel("tempo (s)", color=TXT_DIM, fontsize=9)
+    ax_tl.set_ylim(-0.5, 0.5)
+    from matplotlib.patches import Patch
+    ax_tl.legend(handles=[Patch(color=VERDE, label="Focado"),
+                          Patch(color=VERMELHO, label="Desfocado")],
+                 loc="upper right", frameon=False, labelcolor=TXT_DIM, fontsize=8,
+                 ncol=2)
+
+    print("\nRelatório gerado. Feche a janela do gráfico para finalizar.")
+    plt.show()
+
+
 def render_hud(frame, rotulo, confianca, prob, threshold, inverter, pulse):
     h, w = frame.shape[:2]
     accent  = FOCUSED_CLR if rotulo == "FOCADO" else UNFOCUSED_CLR
@@ -176,6 +344,7 @@ if not cap.isOpened():
 
 threshold = 0.5
 inverter  = True
+historico = []          # registro da sessão: (timestamp, focado, prob, confianca)
 
 cv2.namedWindow("Focus Detector", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("Focus Detector", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
@@ -199,6 +368,8 @@ while True:
     confianca = prob if prob >= threshold else 1.0 - prob
     rotulo    = "FOCADO" if focado else "DESFOCADO"
 
+    historico.append((time.time(), bool(focado), prob, confianca))
+
     frame = render_hud(frame, rotulo, confianca, prob, threshold, inverter, pulse)
 
     cv2.imshow("Focus Detector", frame)
@@ -219,3 +390,9 @@ while True:
 cap.release()
 cv2.destroyAllWindows()
 print("Encerrado.")
+
+# ── Relatório da sessão (opcional, não interfere no detector) ───────────────────
+try:
+    mostrar_dashboard(historico)
+except Exception as e:
+    print(f"Não foi possível gerar o relatório: {e}")
