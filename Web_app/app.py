@@ -12,8 +12,9 @@ Depois abra http://localhost:5000 no navegador.
 """
 
 import os
-# O modelo é .keras (agnóstico de backend). Usamos TensorFlow, que está instalado.
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+# O modelo é .keras (agnóstico de backend). TensorFlow não tem build para o Python
+# instalado (3.14), então usamos PyTorch, que já está disponível.
+os.environ.setdefault("KERAS_BACKEND", "torch")
 
 import base64
 import numpy as np
